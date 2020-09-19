@@ -19,6 +19,7 @@ function HTTP_FAN_V2(log, config) {
     this.name = config.name;
 
     this.active = {};
+    this.swingMode = {};
     this.rotationSpeed = { enabled: false };
 
     if (typeof config.active === 'object') {
@@ -27,6 +28,14 @@ function HTTP_FAN_V2(log, config) {
         this.active.onUrl = config.active.onUrl;
         this.active.offUrl = config.active.offUrl;
         this.active.statusUrl = config.active.statusUrl;
+    }
+    
+    if (typeof config.swingMode === 'object') {
+        this.swingMode.httpMethod = config.swingMode.httpMethod || "GET";
+
+        this.swingMode.onUrl = config.swingMode.onUrl;
+        this.swingMode.offUrl = config.swingMode.offUrl;
+        this.swingMode.statusUrl = config.swingMode.statusUrl;
     }
 
     if (typeof config.rotationSpeed === 'object') {
@@ -43,6 +52,10 @@ function HTTP_FAN_V2(log, config) {
     this.homebridgeService.getCharacteristic(Characteristic.Active)
         .on("get", this.getActiveState.bind(this))
         .on("set", this.setActiveState.bind(this));
+    
+    this.homebridgeService.getCharacteristic(Characteristic.SwingMode)
+        .on("get", this.getSwingModeState.bind(this))
+        .on("set", this.setSwingModeState.bind(this));
 
     if (this.rotationSpeed.enabled) {
         this.homebridgeService.addCharacteristic(Characteristic.RotationSpeed)
@@ -97,6 +110,9 @@ HTTP_FAN_V2.prototype = {
             case "RotationSpeed":
                 characteristic = Characteristic.RotationSpeed;
                 break;
+            case "SwingMode":
+                characteristic = Characteristic.SwingMode;
+                break;
             default:
                 this.log("Encountered unknown characteristic handling notification: " + body.characteristic);
                 return;
@@ -141,6 +157,39 @@ HTTP_FAN_V2.prototype = {
         }.bind(this));
     },
 
+    getSwingModeState: function (callback) {
+        this._doRequest("getSwingModeState", this.active.statusUrl, "GET", "swingMode.statusUrl", callback, function (body) {
+            const swingMode = parseInt(body);
+
+            if (swingMode !== 0 && swingMode !== 1) {
+                this.log("swingMode.statusUrl responded with an invalid value: " + swingMode);
+                callback(new Error("swingMode.statusUrl responded with an invalid value: " + swingMode));
+            }
+            else {
+                this.log("fan swing is currently %s", swingMode === 1 ? "ENABLED" : "DISABLED");
+
+                callback(null, swingMode);
+            }
+        }.bind(this));
+    },
+
+    setSwingModeState: function (swingMode, callback) {
+        if (this.ignoreNextSet) {
+            this.ignoreNextSet = false;
+            callback(undefined);
+            return;
+        }
+
+        const url = swingMode === 1? this.swingMode.onUrl: this.swingMode.offUrl;
+        const urlName = swingMode === 1? "swingMode.onUrl": "swingMode.offUrl";
+
+        this._doRequest("setSwingModeState", url, this.swingMode.httpMethod, urlName, callback, function (body) {
+            this.log("fan swing successfully set to %s", swingMode === 1? "ENABLED" : "DISABLED");
+
+            callback(undefined, body);
+        }.bind(this));
+    },
+    
     getRotationSpeed: function (callback) {
         this._doRequest("getRotationSpeed", this.rotationSpeed.statusUrl, "GET", "rotationSpeed.statusUrl", callback, function (body) {
             const rotationSpeed = parseInt(body);
